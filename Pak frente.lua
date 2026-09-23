@@ -272,3 +272,174 @@ end)
 minimBtn.MouseButton1Click:Connect(function() Hub.Visible = false; FloatingBall.Visible = true end)
 FloatingBall.MouseButton1Click:Connect(function() FloatingBall.Visible = false; Hub.Visible = true end)
 closeBtn.MouseButton1Click:Connect(function() Hub.Visible = false; FloatingBall.Visible = true end)
+--// MÓDULO ESP
+local espObjects = {}
+local function criarESP(player)
+    if player == LocalPlayer or espObjects[player] then return end
+    espObjects[player] = {
+        box = Drawing.new("Square"), name = Drawing.new("Text"),
+        dist = Drawing.new("Text"), health = Drawing.new("Line"),
+        line = Drawing.new("Line"),
+    }
+    for _, o in pairs(espObjects[player]) do o.Visible = false end
+    espObjects[player].box.Thickness = 1.5
+    espObjects[player].box.Filled = false
+    espObjects[player].name.Size = 14; espObjects[player].name.Center = true; espObjects[player].name.Outline = true
+    espObjects[player].dist.Size = 12; espObjects[player].dist.Center = true; espObjects[player].dist.Outline = true
+    espObjects[player].health.Thickness = 2
+    espObjects[player].line.Thickness = 1
+end
+local function removerESP(player)
+    if espObjects[player] then
+        for _, o in pairs(espObjects[player]) do pcall(function() o:Remove() end) end
+        espObjects[player] = nil
+    end
+end
+Players.PlayerAdded:Connect(criarESP)
+Players.PlayerRemoving:Connect(removerESP)
+for _, p in pairs(Players:GetPlayers()) do criarESP(p) end
+
+local fovCircle = Drawing.new("Circle")
+fovCircle.Thickness = 1.5; fovCircle.Color = CONFIG.COR_PRIMARIA; fovCircle.Filled = false
+fovCircle.Transparency = 0.7; fovCircle.NumSides = 60; fovCircle.Visible = false
+
+local function temParedeNaFrente(char)
+    if not char or not char:FindFirstChild("Head") then return true end
+    local head = char.Head
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {char, LocalPlayer.Character, Camera}
+    local ray = Workspace:Raycast(Camera.CFrame.Position, head.Position - Camera.CFrame.Position, params)
+    return ray ~= nil
+end
+
+local function eDoMesmoTime(p)
+    if not p then return false end
+    if LocalPlayer.Team and p.Team and LocalPlayer.Team == p.Team then return true end
+    return false
+end
+
+local function estaMorto(p)
+    if not p or not p.Character then return true end
+    local h = p.Character:FindFirstChildOfClass("Humanoid")
+    if not h then return true end
+    if h.Health <= 0 then return true end
+    local s = h:GetState()
+    if s == Enum.HumanoidStateType.Dead or s == Enum.HumanoidStateType.Physics then return true end
+    return false
+end
+
+local function deveIgnorar(p)
+    if not State.IgnorarTimeECorpos then return false end
+    if eDoMesmoTime(p) or estaMorto(p) then return true end
+    return false
+end
+
+task.spawn(function()
+    while task.wait(60) do
+        if State.AntiAFK then pcall(function()
+            game:GetService("VirtualUser"):CaptureController()
+            game:GetService("VirtualUser"):ClickButton2(Vector2.new())
+        end) end
+    end
+end)
+
+RunService.Stepped:Connect(function()
+    if State.Noclip then
+        local c = LocalPlayer.Character
+        if c then for _, v in pairs(c:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
+        end end
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if State.Speed then
+        local c = LocalPlayer.Character
+        if c and c:FindFirstChildOfClass("Humanoid") then
+            c:FindFirstChildOfClass("Humanoid").WalkSpeed = State.SpeedValue
+        end
+    end
+
+    if State.Aimbot then
+        fovCircle.Visible = true; fovCircle.Radius = State.AimbotFOV
+        fovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    else fovCircle.Visible = false end
+
+    for p, o in pairs(espObjects) do
+        local c = p.Character
+        if c and c:FindFirstChild("HumanoidRootPart") and c:FindFirstChild("Humanoid") then
+            local hrp = c.HumanoidRootPart; local hum = c.Humanoid
+            local pos, on = Camera:WorldToViewportPoint(hrp.Position)
+            if on and State.ESP and hum.Health > 0 then
+                local head = c:FindFirstChild("Head")
+                if head then
+                    local hp = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                    local fp = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,3,0))
+                    local h = math.abs(hp.Y - fp.Y); local w = h/2
+                    local ok = not temParedeNaFrente(c)
+                    local cor = ok and CONFIG.COR_ALVO_OK or CONFIG.COR_ALVO_BLOQ
+                    if State.Box then
+                        o.box.Visible = true
+                        o.box.Size = Vector2.new(w,h)
+                        o.box.Position = Vector2.new(pos.X-w/2, pos.Y-h/2)
+                        o.box.Color = cor
+                    else o.box.Visible = false end
+                    if State.Name then
+                        o.name.Visible = true; o.name.Text = p.Name
+                        o.name.Position = Vector2.new(pos.X, pos.Y-h/2-18)
+                    else o.name.Visible = false end
+                    if State.Distance then
+                        o.dist.Visible = true
+                        o.dist.Text = math.floor((hrp.Position - Camera.CFrame.Position).Magnitude).."m"
+                        o.dist.Position = Vector2.new(pos.X, pos.Y+h/2+4)
+                    else o.dist.Visible = false end
+                    if State.Health then
+                        o.health.Visible = true
+                        local hpc = hum.Health/hum.MaxHealth
+                        o.health.From = Vector2.new(pos.X-w/2-8, pos.Y+h/2)
+                        o.health.To = Vector2.new(pos.X-w/2-8, pos.Y+h/2-(h*hpc))
+                        o.health.Color = Color3.fromRGB(255*(1-hpc), 255*hpc, 0)
+                    else o.health.Visible = false end
+                    if State.Lines then
+                        o.line.Visible = true
+                        o.line.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                        o.line.To = Vector2.new(pos.X, pos.Y+h/2)
+                        o.line.Color = cor
+                    else o.line.Visible = false end
+                end
+            else
+                for _, v in pairs(o) do v.Visible = false end
+            end
+        end
+    end
+
+    if State.Aimbot then
+        local ctr = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+        local cl, cd = nil, State.AimbotFOV
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
+                if not deveIgnorar(p) then
+                    local ch = p.Character
+                    if not (State.VerificarParedes and temParedeNaFrente(ch)) then
+                        local pos, on = Camera:WorldToViewportPoint(ch.Head.Position)
+                        if on then
+                            local d = (Vector2.new(pos.X,pos.Y)-ctr).Magnitude
+                            if d < cd then cd = d; cl = ch.Head end
+                        end
+                    end
+                end
+            end
+        end
+        if cl then Camera.CFrame = CFrame.new(Camera.CFrame.Position, cl.Position) end
+    end
+
+    if State.Spinbot then
+        local c = LocalPlayer.Character
+        if c and c:FindFirstChild("HumanoidRootPart") then
+            c.HumanoidRootPart.CFrame = c.HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(State.SpinSpeed), 0)
+        end
+    end
+end)
+
+StarterGui:SetCore("SendNotification", {Title="PAK HUB", Text="Carregado! Key: PakTop1", Duration=5})
